@@ -9,11 +9,11 @@ Prima di iniziare è necessario impostare Arduino, Board e relative librerie com
  - SETUP librerie come nell'esempio **https://github.com/VIEWESMART/ESP32-Arduino/tree/main/examples/1.3inch** o copiare quelle presenti in questo repository
 
 Principali funzionalià implementate:
- - lettura da MQTT della temperatura mostrata sull'arco di sfondo con gradiente di colore celeste-arancione
- - lettura/scrttura su MQTT della temperatura di setpoint desiderato mostrata sull'arco principale con gradiente di colore celeste-arancione e modificabile girando l'encoder
- - pressione breve del bottone per cambiare Mode tramite MQTT
- - pressione lunga (configurabile) del bottone per cambiare Preset Mode tramite MQTT
+ - lettura da MQTT della temperatura mostrata sull'arco di sfondo con gradiente di colore celeste-arancione 5-35 gradi Celsius
+ - lettura/scrttura su MQTT della temperatura di setpoint desiderato mostrata sull'arco principale con gradiente di colore celeste-arancione 5-35 gradi Celsius e modificabile girando l'encoder a destra o sinistra
+ - pressione breve del bottone per cambiare Mode (off|cool|heat) tramite MQTT
+ - pressione lunga (configurabile) del bottone per cambiare Preset Mode (boost|eco|altri da implementare) tramite MQTT
  - pressione molto lunga (configurabile) del bottone per resettare le configurazioni in EEPROM
- - Disattivazione display dopo 120secondi con ripresa in conseguenza di movimento del bottone o dell'encoder
- - Setup configurazioni Wifi via web http://192.168.4.1 in EEPROM se non trovate crea un AP Thermostat_Config con passwrod 12345678
+ - Disattivazione display dopo 120secondi con riaccensione in conseguenza del movimento del bottone o dell'encoder
+ - Setup configurazioni Wifi e id topic MQTT via web in EEPROM se non trovate crea un AP Thermostat_Config con password 12345678 con configurazione tramite http://192.168.4.1
    
