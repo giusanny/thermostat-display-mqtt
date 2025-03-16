@@ -1,5 +1,5 @@
 # thermostat-display-mqtt
-Interfaccia Termostato integrata con HomeAssistant tramite MQTT con ESP32-C3 e display 1.3inch con bottone ed encoder.
+Interfaccia Termostato integrata con HomeAssistant tramite MQTT con ESP32-C3 e display 1.3inch con bottone ed encoder. Link del prodotto **https://github.com/VIEWESMART/UEDX24240013-MD50ESP32_1.3inch-Knob**
 
 ![knob](https://github.com/user-attachments/assets/2320dc91-32e5-41c9-b025-90a7331e96b5)
 
