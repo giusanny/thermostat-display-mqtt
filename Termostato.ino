@@ -17,7 +17,7 @@
 #define ADDR_PASS 64    // Indirizzo iniziale per la password (64 byte)
 #define ADDR_TOPIC 128  // Indirizzo iniziale per il topic (64 byte)
 
-// Valori di default (usate se l'EEPROM non è stata inizializzata)
+// Default values, used if EEPROM is not initialized or has been reset.
 char defaultSSID[] = "mySSID";
 char defaultPass[] = "myPassword";
 char defaultTopic[] = "myThermostatHA"; // che va a sostituire il value del topic "homeassistant/thermostat/{value}/mode"
@@ -28,13 +28,13 @@ const char *mqtt_user = "userMqtt";
 const char *mqtt_password = "pwdMqtt";
 
 // Topic MQTT
-String topic_mode = "homeassistant/thermostat/{value}/mode";
-String topic_set_mode = "homeassistant/thermostat/{value}/set_mode";
-String topic_temp = "homeassistant/thermostat/{value}/current_temp";
-String topic_setpoint = "homeassistant/thermostat/{value}/target_temp";
-String topic_set_setpoint = "homeassistant/thermostat/{value}/set_target_temp";
-String topic_preset_mode = "homeassistant/thermostat/{value}/preset_mode";
-String topic_set_preset_mode = "homeassistant/thermostat/{value}/set_preset_mode";
+char topic_mode[128];
+char topic_set_mode[128];
+char topic_temp[128];
+char topic_setpoint[128];
+char topic_set_setpoint[128];
+char topic_preset_mode[128];
+char topic_set_preset_mode[128];
 
 // Buffer per le credenziali lette/salvate (aggiungiamo spazio per il terminatore)
 char savedSSID[65];  // 64 byte + terminatore
@@ -97,8 +97,11 @@ void handleSave() {
 
     // Copia nelle variabili globali (incluso il terminatore)
     newSSID.toCharArray(savedSSID, sizeof(savedSSID));
+    savedSSID[sizeof(savedSSID)-1] = '\0';
     newPass.toCharArray(savedPassword, sizeof(savedPassword));
+    savedPassword[sizeof(savedPassword)-1] = '\0';
     newTopic.toCharArray(savedTopic, sizeof(savedTopic));
+    savedTopic[sizeof(savedTopic)-1] = '\0';
 
     // Scrittura in EEPROM: 64 byte per ciascuna stringa
     for (int i = 0; i < 64; i++) {
@@ -165,6 +168,8 @@ void loadConfig() {
 #define LV_COLOR_GRAY lv_color_make(150, 150, 150)  // Grigio
 #endif
 
+unsigned long lastMqttAttemptTime = 0;
+const unsigned long mqttRetryInterval = 5000; // 5 seconds
 
 
 WiFiClient espClient;
@@ -238,7 +243,6 @@ void update_background_colorSP() {
     uint8_t blend = map(setPoint, 5, 35, 0, 255);
     bgColor = lv_color_mix(LV_COLOR_ORANGE, LV_COLOR_BLUE, blend);
   }
-  //lv_obj_set_style_bg_color(lv_scr_act(), bgColor, LV_PART_MAIN);
   lv_obj_set_style_arc_color(arcSP_widget, bgColor, LV_PART_INDICATOR);
   lv_obj_set_style_bg_color(arcSP_widget, bgColor, LV_PART_KNOB);
 }
@@ -255,7 +259,6 @@ void update_background_colorT() {
     uint8_t blend = map(currentTemp, 5, 35, 0, 255);
     bgColor = lv_color_mix(LV_COLOR_ORANGE, LV_COLOR_BLUE, blend);
   }
-  //lv_obj_set_style_bg_color(lv_scr_act(), bgColor, LV_PART_MAIN);
   lv_obj_set_style_arc_color(arcT_widget, bgColor, LV_PART_INDICATOR);
 }
 
@@ -269,7 +272,7 @@ void mqtt_callback(char *topic, byte *payload, unsigned int length) {
   Serial.print(" -> ");
   Serial.println(message);
 
-  if (strcmp(topic, topic_mode.c_str()) == 0) {
+  if (strcmp(topic, topic_mode) == 0) {
     if (strcmp(message.c_str(), "heat") == 0)
       mode = "Caldo";
     else if (strcmp(message.c_str(), "cool") == 0)
@@ -278,7 +281,7 @@ void mqtt_callback(char *topic, byte *payload, unsigned int length) {
       mode = "OFF";
 
     lv_label_set_text(label_mode, (mode).c_str());
-  } else if (strcmp(topic, topic_temp.c_str()) == 0) {
+  } else if (strcmp(topic, topic_temp) == 0) {
     currentTemp = message.toFloat();
     lv_label_set_text(label_temp, (String(currentTemp) + "°C").c_str());
     update_background_colorT();
@@ -288,14 +291,14 @@ void mqtt_callback(char *topic, byte *payload, unsigned int length) {
       lv_arc_set_value(arcT_widget, (int)currentTemp);
     }
 
-  } else if (strcmp(topic, topic_setpoint.c_str()) == 0) {
+  } else if (strcmp(topic, topic_setpoint) == 0) {
     setPoint = message.toFloat();
     lv_label_set_text(label_setpoint, (String(setPoint) + "°C").c_str());
     update_background_colorSP();
     if (arcSP_widget != NULL) {
       lv_arc_set_value(arcSP_widget, (int)setPoint);
     }
-  } else if (strcmp(topic, topic_preset_mode.c_str()) == 0) {
+  } else if (strcmp(topic, topic_preset_mode) == 0) {
     if (strcmp(message.c_str(), "eco") == 0)
       preset_mode = "Eco";
     if (strcmp(message.c_str(), "boost") == 0)
@@ -314,7 +317,6 @@ void create_ui() {
   lv_obj_t *new_scr = lv_obj_create(NULL);
 
   lv_obj_t *container = lv_obj_create(new_scr);
-  //lv_obj_t *container = lv_obj_create(lv_scr_act());
   lv_obj_set_size(container, 240, 240);
   lv_obj_center(container);
   lv_obj_align(container, LV_TEXT_ALIGN_CENTER, -40, 0);
@@ -389,23 +391,31 @@ void create_ui() {
   // Salva il riferimento globale all'arco per poterlo aggiornare altrove
   arcSP_widget = arc;
 
-  //lv_scr_load(lv_scr_act());
   lv_scr_load(new_scr);
 }
 
 // FUNZIONE: Connessione a MQTT con sottoscrizioni
 void connect_mqtt() {
-  while (!client.connected()) {
+  if (client.connected()) {
+    return;
+  }
+
+  unsigned long currentTime = millis();
+  if (currentTime - lastMqttAttemptTime >= mqttRetryInterval) {
+    Serial.println("Tentativo di connessione MQTT...");
     if (client.connect("AtHome_Thermostat", mqtt_user, mqtt_password)) {
-      client.subscribe(topic_mode.c_str());
-      client.subscribe(topic_temp.c_str());
-      client.subscribe(topic_setpoint.c_str());
-      client.subscribe(topic_preset_mode.c_str());
+      // Resubscribe upon connection
+      client.subscribe(topic_mode);
+      client.subscribe(topic_temp);
+      client.subscribe(topic_setpoint);
+      client.subscribe(topic_preset_mode);
       Serial.println("MQTT connesso e sottoscritto");
     } else {
-      Serial.println("MQTT non connesso, riprovo tra 5 secondi");
-      delay(5000);
+      Serial.print("MQTT non connesso, rc=");
+      Serial.print(client.state());
+      Serial.println(" Riprovo più tardi.");
     }
+    lastMqttAttemptTime = currentTime; // Update time after attempt
   }
 }
 
@@ -428,14 +438,15 @@ void setup() {
   delay(10);
   Serial.println("LVGL initialized");
 
-  disp_draw_buf1 = (lv_color_t *)heap_caps_malloc(sizeof(lv_color_t) * screenWidth * screenHeight / 8, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-  disp_draw_buf2 = (lv_color_t *)heap_caps_malloc(sizeof(lv_color_t) * screenWidth * screenHeight / 8, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+  // Allocate display buffers for LVGL, using /10 of screen size as recommended for partial buffering.
+  disp_draw_buf1 = (lv_color_t *)heap_caps_malloc(sizeof(lv_color_t) * screenWidth * screenHeight / 10, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+  disp_draw_buf2 = (lv_color_t *)heap_caps_malloc(sizeof(lv_color_t) * screenWidth * screenHeight / 10, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
 
   if (!disp_draw_buf1 && !disp_draw_buf2) {
     Serial.println("LVGL disp_draw_buf allocate failed!");
     return;
   } else {
-    lv_disp_draw_buf_init(&draw_buf, disp_draw_buf1, disp_draw_buf2, screenWidth * screenHeight / 8);
+    lv_disp_draw_buf_init(&draw_buf, disp_draw_buf1, disp_draw_buf2, screenWidth * screenHeight / 10);
 
     /* Initialize the display */
     lv_disp_drv_init(&disp_drv);
@@ -469,7 +480,7 @@ void setup() {
     } else {
       // Se non si connette entro 5 secondi, avvia la modalità Access Point per la configurazione
       Serial.println("Connessione WiFi fallita. Avvio modalità Access Point per configurazione.");
-      WiFi.disconnect(true, true);
+      WiFi.disconnect(true, false);
       WiFi.mode(WIFI_AP);
       // Avvia un hotspot denominato "Termostat_Config" con password "12345678"
       bool result = WiFi.softAP("Thermostat_Config", "12345678");
@@ -502,13 +513,13 @@ void setup() {
     }
 
     // Configura MQTT
-    topic_mode.replace("{value}", savedTopic);
-    topic_set_mode.replace("{value}", savedTopic);
-    topic_temp.replace("{value}", savedTopic);
-    topic_setpoint.replace("{value}", savedTopic);
-    topic_set_setpoint.replace("{value}", savedTopic);
-    topic_preset_mode.replace("{value}", savedTopic);
-    topic_set_preset_mode.replace("{value}", savedTopic);
+    snprintf(topic_mode, sizeof(topic_mode), "homeassistant/thermostat/%s/mode", savedTopic);
+    snprintf(topic_set_mode, sizeof(topic_set_mode), "homeassistant/thermostat/%s/set_mode", savedTopic);
+    snprintf(topic_temp, sizeof(topic_temp), "homeassistant/thermostat/%s/current_temp", savedTopic);
+    snprintf(topic_setpoint, sizeof(topic_setpoint), "homeassistant/thermostat/%s/target_temp", savedTopic);
+    snprintf(topic_set_setpoint, sizeof(topic_set_setpoint), "homeassistant/thermostat/%s/set_target_temp", savedTopic);
+    snprintf(topic_preset_mode, sizeof(topic_preset_mode), "homeassistant/thermostat/%s/preset_mode", savedTopic);
+    snprintf(topic_set_preset_mode, sizeof(topic_set_preset_mode), "homeassistant/thermostat/%s/set_preset_mode", savedTopic);
 
     client.setServer(mqtt_server, 1883);
     client.setCallback(mqtt_callback);
@@ -527,10 +538,11 @@ void setup() {
     Serial.println("Page caricata");
   }
 
+  // Stack size for tasks (e.g., 16384 bytes = 16KB)
   xTaskCreatePinnedToCore(
     lvglTask,    // Task function
     "lvglTask",  // Task name
-    8192,        // Stack size
+    16384,        // Stack size
     NULL,        // Parameters
     2,           // Priority
     NULL,        // Task handle
@@ -540,7 +552,7 @@ void setup() {
   xTaskCreatePinnedToCore(
     inputTask,    // Task function
     "inputTask",  // Task name
-    8192,         // Stack size
+    16384,         // Stack size
     NULL,         // Parameters
     2,            // Priority
     NULL,         // Task handle
@@ -606,23 +618,23 @@ void inputTask(void *pvParameters) {
           // Inserisci qui la logica per il long press
           if (strcmp(mode.c_str(), "Caldo") == 0) {
             mode = "Freddo";
-            client.publish(topic_set_mode.c_str(), "cool");
+            client.publish(topic_set_mode, "cool");
           } else if (strcmp(mode.c_str(), "Freddo") == 0) {
             mode = "OFF";
-            client.publish(topic_set_mode.c_str(), "off");
+            client.publish(topic_set_mode, "off");
           } else if (strcmp(mode.c_str(), "OFF") == 0) {
             mode = "Caldo";
-            client.publish(topic_set_mode.c_str(), "heat");
+            client.publish(topic_set_mode, "heat");
           }
           lv_label_set_text(label_mode, (mode).c_str());
         } else {
           Serial.println("Short press detected");
           if (strcmp(preset_mode.c_str(), "Eco") == 0) {
             preset_mode = "Boost";
-            client.publish(topic_set_mode.c_str(), "boost");
+            client.publish(topic_set_preset_mode, "boost");
           } else if (strcmp(preset_mode.c_str(), "Boost") == 0) {
             preset_mode = "Eco";
-            client.publish(topic_set_preset_mode.c_str(), "eco");
+            client.publish(topic_set_preset_mode, "eco");
           } //implementare altri preset a piacimento
           lv_label_set_text(label_preset, (preset_mode).c_str());
         }
@@ -659,7 +671,7 @@ void inputTask(void *pvParameters) {
 
       // Invia il valore via MQTT solo se il setPoint è stabile da almeno 1 secondo
       if ((currentTime - lastSetPointChangeTime >= 1000) && (setPoint != lastPublishedSetPoint)) {
-        client.publish(topic_set_setpoint.c_str(), String(setPoint).c_str());
+        client.publish(topic_set_setpoint, String(setPoint).c_str());
         lastPublishedSetPoint = setPoint;
         Serial.print("MQTT publish: ");
         Serial.println(setPoint);
@@ -688,7 +700,9 @@ void app_main() {
   // Creating tasks
   // xTaskCreate(lvglTask, "lvglTask", 8192, NULL, 2, NULL);
   // xTaskCreate(inputTask, "inputTask", 8192, NULL, 2, NULL);
-  xTaskCreatePinnedToCore(lvglTask, "lvglTask", 8192 * 2, NULL, 2, NULL, 1);
-  xTaskCreatePinnedToCore(inputTask, "inputTask", 8192 * 2, NULL, 2, NULL, 1);
-  Serial.println("Tasks created");
+  // xTaskCreatePinnedToCore(lvglTask, "lvglTask", 8192 * 2, NULL, 2, NULL, 1); // Removed as per instruction
+  // xTaskCreatePinnedToCore(inputTask, "inputTask", 8192 * 2, NULL, 2, NULL, 1); // Removed as per instruction
+  Serial.println("app_main finished, setup() completed.");
 }
+// ESP-IDF style entry point. Arduino's setup() is called to initialize the application.
+// Tasks are initialized within setup().
